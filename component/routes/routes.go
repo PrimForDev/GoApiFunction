@@ -12,5 +12,9 @@ func SetupRoutes(app *fiber.App) {
 
 	// Define routes under the /api group
 	api.Get("/HelloFunction", controllers.HelloHandler)
-	api.Get("/UserFunction", controllers.UserHandler)
+	api.Get("/UserFunction", controllers.GetUserHandler)
+	api.Post("/UserFunction", controllers.CreateUserHandler)
+	api.Patch("/UserFunction", controllers.UpdateUserHandler)
+	api.Delete("/UserFunction", controllers.DeleteUserHandler)
+
 }
