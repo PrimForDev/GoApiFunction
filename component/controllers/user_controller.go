@@ -19,24 +19,40 @@ func IsNullOrEmpty(s string) bool {
 	return len(strings.TrimSpace(s)) == 0
 }
 
-func GetUserHandler(c *fiber.Ctx) error {
-	// Get id from Query Parameter
-	userID := c.Query("id")
+func getParam(c *fiber.Ctx, paramName string) (string, error) {
+	// ขั้นแรก ตรวจสอบค่าจาก Query Parameter
+	paramValue := c.Query(paramName)
 
-	// If id from Query Parameter is null
-	if IsNullOrEmpty(userID) {
-		var user models.User
-		// Try to get the id from Body.
-		if err := c.BodyParser(&user); err != nil {
-			log.Println("No ID provided in Query or Body. Listing all users.")
-		} else {
-			// Convert user.ID (int) to string.
-			userID = strconv.Itoa(user.ID)
+	// ถ้าค่าจาก Query ไม่มี ให้ลองดึงจาก Body
+	if IsNullOrEmpty(paramValue) {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err != nil {
+			return "", fmt.Errorf("Failed to parse request body: %v", err)
+		}
+
+		// ตรวจสอบว่ามี key ที่ต้องการใน Body หรือไม่
+		if value, exists := body[paramName]; exists {
+			if valStr, ok := value.(string); ok {
+				return valStr, nil
+			}
+			return "", fmt.Errorf("Parameter '%s' is not a valid string", paramName)
 		}
 	}
 
+	// ถ้าค่าไม่ว่าง (จาก Query หรือ Body) คืนค่ากลับไป
+	if !IsNullOrEmpty(paramValue) {
+		return paramValue, nil
+	}
+
+	return "", fmt.Errorf("Parameter '%s' is missing", paramName)
+}
+
+func GetUserHandler(c *fiber.Ctx) error {
+	// Get id from Query Parameter
+	ID, err := getParam(c, "ID")
+
 	// If no id is specified (in both Query and Body)
-	if IsNullOrEmpty(userID) {
+	if IsNullOrEmpty(ID) {
 		// Fetch all user entries from the database.
 		var users []models.User
 		db, err := database.ConnectToAzureSQL()
@@ -62,7 +78,7 @@ func GetUserHandler(c *fiber.Ctx) error {
 		return c.Status(500).SendString(fmt.Sprintf("Connection error: %v", err))
 	}
 
-	result := db.First(&user, userID)
+	result := db.First(&user, ID)
 	if result.Error != nil {
 		// Check if the user is not found in the database.
 		if result.Error == gorm.ErrRecordNotFound {
@@ -106,8 +122,13 @@ func CreateUserHandler(c *fiber.Ctx) error {
 		LastName:  lastName,
 		Role:      role,
 	}
-
+	log.Printf("New User: %+v", newUser)
 	// Save data to database.
+	db, err := database.ConnectToAzureSQL()
+	if err != nil {
+		log.Println("Error connecting to database:", err)
+		return c.Status(500).SendString(fmt.Sprintf("Connection error: %v", err))
+	}
 	result := db.Create(&newUser)
 	if result.Error != nil {
 		return c.Status(500).SendString(fmt.Sprintf("Failed to insert user: %v", result.Error))
@@ -118,10 +139,10 @@ func CreateUserHandler(c *fiber.Ctx) error {
 
 func UpdateUserHandler(c *fiber.Ctx) error {
 	// Get id from Query Parameter
-	userID := c.Query("id")
+	ID := c.Query("id")
 
 	// If id from Query Parameter is null
-	if IsNullOrEmpty(userID) {
+	if IsNullOrEmpty(ID) {
 		var user models.User
 		// Try to get the id from Body.
 		if err := c.BodyParser(&user); err != nil {
@@ -129,15 +150,15 @@ func UpdateUserHandler(c *fiber.Ctx) error {
 		}
 		// Check if id in Body is null.
 		if user.ID != 0 {
-			userID = strconv.Itoa(user.ID)
+			ID = strconv.Itoa(user.ID)
 		}
 	}
 
 	// Check if id exists
-	if IsNullOrEmpty(userID) {
+	if IsNullOrEmpty(ID) {
 		return c.Status(400).SendString("User ID is required")
 	}
-	log.Printf(`user id: %s`, userID)
+	log.Printf(`user id: %s`, ID)
 	// Get new data from request body
 	var updatedUser models.User
 	if err := c.BodyParser(&updatedUser); err != nil {
@@ -153,7 +174,7 @@ func UpdateUserHandler(c *fiber.Ctx) error {
 
 	// Find a user in the database using their id.
 	var user models.User
-	result := db.First(&user, userID)
+	result := db.First(&user, ID)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
 			return c.Status(404).SendString("User not found")
@@ -189,10 +210,10 @@ func UpdateUserHandler(c *fiber.Ctx) error {
 
 func DeleteUserHandler(c *fiber.Ctx) error {
 	// Get id from Query Parameter
-	userID := c.Query("id")
+	ID := c.Query("ID")
 
 	// If id from Query Parameter is null
-	if IsNullOrEmpty(userID) {
+	if IsNullOrEmpty(ID) {
 		var user models.User
 		// Try to get the id from Body.
 		if err := c.BodyParser(&user); err != nil {
@@ -200,18 +221,25 @@ func DeleteUserHandler(c *fiber.Ctx) error {
 		}
 		// Check if id in Body is null.
 		if user.ID != 0 {
-			userID = strconv.Itoa(user.ID)
+			ID = strconv.Itoa(user.ID)
 		}
 	}
 
 	// Check if id exists
-	if IsNullOrEmpty(userID) {
+	if IsNullOrEmpty(ID) {
 		return c.Status(400).SendString("User ID is required")
 	}
-	log.Printf("User ID received: %s", userID)
-	fmt.Printf("User ID received: %s", userID)
+	log.Printf("User ID received: %s", ID)
+	fmt.Printf("User ID received: %s", ID)
 	var user models.User
-	result := db.First(&user, userID)
+
+	db, err := database.ConnectToAzureSQL()
+	if err != nil {
+		log.Println("Error connecting to database:", err)
+		return c.Status(500).SendString(fmt.Sprintf("Connection error: %v", err))
+	}
+
+	result := db.First(&user, ID)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
 			return c.Status(404).SendString("User not found")
